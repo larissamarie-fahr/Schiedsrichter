@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f3ed">
+  <title>Schiedsrichter | Saisonbuch</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main id="login-view" class="login-view">
+    <div class="login-mark">SR<span>/</span>BEV</div>
+    <p class="eyebrow">PERSÖNLICHES SAISONBUCH</p>
+    <h1>Deine Spiele.<br>Dein Überblick.</h1>
+    <form id="login-form" class="login-form">
+      <label for="access-code">Zugangscode</label>
+      <input id="access-code" name="password" type="password" autocomplete="current-password" required>
+      <button class="button button-dark" type="submit">Anmelden <span aria-hidden="true">→</span></button>
+      <p id="login-error" class="form-error" role="alert"></p>
+    </form>
+    <p class="privacy-note">Deine Daten bleiben auf diesem Mac.</p>
+  </main>
+
+  <div id="app-view" class="app-view" hidden>
+    <header class="topbar">
+      <a class="brand" href="#overview" aria-label="Saisonbuch Übersicht"><span class="brand-icon">SR</span><span>Saisonbuch</span></a>
+      <nav class="main-nav" aria-label="Hauptnavigation">
+        <button class="nav-button active" data-view="overview">Übersicht</button>
+        <button class="nav-button" data-view="games">Spiele</button>
+        <button class="nav-button" data-view="expenses">Ausgaben</button>
+        <button class="nav-button" data-view="settings">Einstellungen</button>
+      </nav>
+      <span class="local-indicator"><i></i> LOKAL GESPEICHERT</span>
+    </header>
+
+    <main class="content">
+      <section class="page-heading">
+        <div>
+          <p class="eyebrow" id="heading-kicker">SAISONÜBERSICHT</p>
+          <h1 id="page-title">Dein Jahr auf dem Eis</h1>
+        </div>
+        <label class="year-picker">Jahr <select id="year-select" aria-label="Jahr auswählen"></select></label>
+      </section>
+
+      <div id="notice" class="notice" role="status" hidden></div>
+      <section class="view-panel" data-panel="overview">
+        <div class="stat-grid">
+          <article class="stat-block stat-primary"><span class="stat-label">Spiele geleitet</span><strong id="stat-games">0</strong><span id="stat-game-detail" class="stat-detail">im ausgewählten Jahr</span></article>
+          <article class="stat-block"><span class="stat-label">Einnahmen</span><strong id="stat-income">0,00 €</strong><span class="stat-detail">Gehälter aus Spielen</span></article>
+          <article class="stat-block"><span class="stat-label">Fahrtkosten</span><strong id="stat-mileage">0,00 €</strong><span id="stat-km" class="stat-detail">0 km · 0,30 €/km</span></article>
+          <article class="stat-block"><span class="stat-label">Sonstige Ausgaben</span><strong id="stat-expenses">0,00 €</strong><span class="stat-detail">manuell erfasste Belege</span></article>
+        </div>
+        <div class="overview-columns">
+          <section class="data-section">
+            <div class="section-heading"><div><p class="eyebrow">DEINE NÄCHSTEN EINTEILUNGEN</p><h2>Kommende Spiele</h2></div><button class="button button-light" data-action="new-game">+ Spiel</button></div>
+            <div id="overview-games" class="table-wrap"></div>
+          </section>
+          <aside class="year-summary">
+            <p class="eyebrow">JAHRESABSCHLUSS</p>
+            <h2 id="summary-year">2026</h2>
+            <div class="summary-line"><span>Spieleinnahmen</span><strong id="summary-income">0,00 €</strong></div>
+            <div class="summary-line"><span>Fahrtkosten</span><strong id="summary-mileage">− 0,00 €</strong></div>
+            <div class="summary-line"><span>Sonstige Ausgaben</span><strong id="summary-expenses">− 0,00 €</strong></div>
+            <div class="summary-total"><span>Überschuss vor Steuern</span><strong id="summary-net">0,00 €</strong></div>
+            <div class="export-actions"><a id="income-export" class="export-link" href="#">↓ Einnahmen CSV</a><a id="expense-export" class="export-link" href="#">↓ Ausgaben CSV</a></div>
+          </aside>
+        </div>
+        <section class="career-stats">
+          <div class="section-heading"><div><p class="eyebrow">ÜBER ALLE SAISONS</p><h2>Deine Gesamtstatistik</h2></div></div>
+          <div class="career-total"><strong id="career-games">0</strong><span>Spiele insgesamt</span><strong id="career-income">0,00 €</strong><span>Gehalt insgesamt</span></div>
+          <div id="season-stats" class="table-wrap"></div>
+        </section>
+      </section>
+
+      <section class="view-panel" data-panel="games" hidden>
+        <div class="section-heading section-heading-wide"><div><p class="eyebrow">EINTEILUNGEN UND SPIELE</p><h2>Spiele <span id="game-count" class="count"></span></h2></div><div class="heading-actions"><button id="import-button" class="button button-light" data-action="import-games">Excel übernehmen</button><button class="button button-dark" data-action="new-game">+ Spiel erfassen</button></div></div>
+        <p class="import-note">Liest die Excel-Dateien aus dem Projektordner <strong>Spiele</strong>. Bereits vorhandene Spiele und Ausgaben werden abgeglichen, damit der Import wiederholbar ist.</p>
+        <div id="games-table" class="table-wrap"></div>
+      </section>
+
+      <section class="view-panel" data-panel="expenses" hidden>
+        <div class="section-heading section-heading-wide"><div><p class="eyebrow">BELEGE UND SONSTIGE KOSTEN</p><h2>Ausgaben <span id="expense-count" class="count"></span></h2></div><button class="button button-dark" data-action="new-expense">+ Ausgabe erfassen</button></div>
+        <div id="expenses-table" class="table-wrap"></div>
+      </section>
+
+      <section class="view-panel" data-panel="settings" hidden>
+        <div class="settings-layout">
+          <section class="settings-section"><p class="eyebrow">FAHRTBERECHNUNG</p><h2>Heimatadresse</h2><p class="settings-copy">Trage die Adresse mit ihrem Gültigkeitsbeginn ein. Für einen früheren Wohnort wählst du das damalige Startdatum. Spiele werden anhand ihres Spieldatums der passenden Adresse zugeordnet.</p>
+            <form id="address-form" class="stack-form"><label for="home-address">Vollständige Adresse</label><input id="home-address" name="address" placeholder="Straße, PLZ, Ort" required maxlength="500"><label for="address-effective-from">Gültig ab</label><input id="address-effective-from" name="effective_from" type="date" required><button class="button button-dark" type="submit">Adressversion speichern</button></form>
+            <p id="maps-status" class="status-line"></p>
+          </section>
+          <section class="settings-section"><p class="eyebrow">ADRESSVERLAUF</p><h2>Frühere Adressen</h2><div id="address-history" class="history-list"></div></section>
+        </div>
+        <section class="rate-manager">
+          <div class="section-heading"><div><p class="eyebrow">HONORARREGELN</p><h2>Saisonvergütung</h2></div></div>
+            <p class="settings-copy">Tarife gelten je Saison. Änderungen an einer bestehenden Saison beeinflussen die berechneten Beträge bei künftigen Spieländerungen; bereits importierte oder manuell gesetzte Gehälter bleiben erhalten.</p>
+          <form id="season-form" class="season-form"><label for="current-season">Aktive Saison</label><input id="current-season" name="season" pattern="[0-9]{4}/[0-9]{2}" placeholder="2026/27" required><button class="button button-dark" type="submit">Saison speichern</button></form>
+          <label class="rate-season-filter">Tarife anzeigen<select id="rate-season-filter"></select></label>
+          <form id="rate-form" class="rate-form">
+            <input type="hidden" name="id">
+            <label>Saison<input name="season" placeholder="2026/27" required></label>
+            <label>Altersklasse<select name="age_group" required><option>U11</option><option>U13</option><option>U15</option><option>U17</option><option>U17 DEB</option><option>U20</option><option>Frauen</option><option>BZL</option><option>LL</option><option>BYL</option><option>Sonstige</option></select></label>
+            <label>Liga<select name="league"><option value="">–</option><option>LL</option><option>BYL</option></select></label>
+            <label>System<select name="system" required><option>1-Mann</option><option>2-Mann</option><option>3-Mann</option><option>4-Mann</option></select></label>
+            <label>Funktion<select name="role"><option value="">–</option><option>Linienrichter</option><option>Hauptschiedsrichter</option></select></label>
+            <label>Runde<select name="round_stage"><option value="">–</option><option>Vorrunde</option><option>Abstiegsrunde</option><option>PlayOff/-Down</option></select></label>
+            <label>Gehalt (€)<input name="fee" type="number" min="0" step="0.01" required></label>
+            <button class="button button-dark" type="submit">Tarif hinzufügen / aktualisieren</button>
+          </form>
+          <div id="rates-table" class="table-wrap rate-table"></div>
+        </section>
+        <p class="privacy-footnote">Google Maps ist optional. Wenn aktiviert, erhält Google bei der Berechnung die Heimat- und Stadionadresse. Ohne Schlüssel kannst du die Hin- und Rückfahrtkilometer direkt beim Spiel eintragen.</p>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="game-dialog" class="form-dialog">
+    <form id="game-form" method="dialog">
+      <div class="dialog-heading"><div><p class="eyebrow">SPIELDETAILS</p><h2 id="game-dialog-title">Spiel erfassen</h2></div><button class="icon-button" type="button" data-close aria-label="Schließen">×</button></div>
+      <input type="hidden" name="id"><input type="hidden" name="route_mode" value="manual"><input type="hidden" name="route_origin">
+      <div class="form-grid">
+        <label>Datum<input name="game_date" type="date" required></label><label>Uhrzeit<input name="game_time" type="time" required></label>
+        <label>Altersklasse<input name="age_group" list="age-groups" placeholder="z. B. U17" required><datalist id="age-groups"><option>U11</option><option>U13</option><option>U15</option><option>U17</option><option>U17 DEB</option><option>U20</option><option>Frauen</option><option>BZL</option><option>LL</option><option>BYL</option></datalist></label>
+        <label>Liga<select name="league"><option value="">–</option><option>LL</option><option>BYL</option></select></label>
+        <label>System<select name="system" required><option value="">Auswählen</option><option>1-Mann</option><option>2-Mann</option><option>3-Mann</option><option>4-Mann</option><option>Nicht angegeben</option></select></label>
+        <label>Funktion<select name="role"><option value="">–</option><option>Linienrichter</option><option>Hauptschiedsrichter</option></select></label>
+        <label>Runde<select name="round_stage"><option value="">–</option><option>Vorrunde</option><option>Abstiegsrunde</option><option>PlayOff/-Down</option></select></label>
+        <label>Saison<select name="season" required></select></label>
+        <label>Heimmannschaft<input name="home_team" required></label><label>Gastmannschaft<input name="away_team" required></label>
+        <label class="fee-field"><span>Gehalt (€)</span><input name="fee" type="number" min="0" step="0.01" value="0" required><span id="fee-preview" class="field-hint">Wähle die Spielmerkmale für den Saisontarif.</span><span class="manual-fee"><input id="fee-manual" type="checkbox"> Gehalt manuell festlegen</span></label>
+        <label>Eisstadion<input name="stadium" placeholder="Name des Stadions" required></label>
+        <label class="span-two">Stadionadresse<input name="stadium_address" placeholder="Straße, PLZ, Ort" required></label>
+        <div class="distance-field span-two"><label for="route-km">Hin- und Rückfahrt (km)</label><div class="distance-control"><input id="route-km" name="route_km" type="number" min="0" step="0.1" placeholder="z. B. 84,6"><button id="route-button" class="button button-light" type="button">Route berechnen</button></div><span id="route-hint" class="field-hint">Manuell eintragen oder per Google Maps berechnen lassen.</span></div>
+      </div>
+      <p id="game-error" class="form-error" role="alert"></p><div class="dialog-actions"><button class="button button-light" type="button" data-close>Abbrechen</button><button class="button button-dark" type="submit">Spiel speichern</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="expense-dialog" class="form-dialog compact-dialog">
+    <form id="expense-form" method="dialog"><div class="dialog-heading"><div><p class="eyebrow">BELEG ERFASSEN</p><h2 id="expense-dialog-title">Ausgabe hinzufügen</h2></div><button class="icon-button" type="button" data-close aria-label="Schließen">×</button></div>
+      <input type="hidden" name="id"><div class="form-grid"><label>Datum<input name="expense_date" type="date" required></label><label>Kategorie<select name="category" required><option value="">Auswählen</option><option>Fahrt / Parken</option><option>Ausrüstung</option><option>Fortbildung</option><option>Verpflegung</option><option>Sonstiges</option></select></label><label class="span-two">Beschreibung<input name="description" placeholder="z. B. Parkticket Auswärtsspiel" required></label><label>Betrag (€)<input name="amount" type="number" min="0" step="0.01" required></label><label class="span-two">Rechnung / Beleg (PDF, JPG, PNG oder WebP)<input name="attachment" type="file" accept="application/pdf,image/jpeg,image/png,image/webp"><a id="existing-attachment" class="text-action" hidden target="_blank" rel="noopener"></a><span class="field-hint">Optional, lokal auf diesem Mac gespeichert. Maximal 25 MB.</span></label></div>
+      <p id="expense-error" class="form-error" role="alert"></p><div class="dialog-actions"><button class="button button-light" type="button" data-close>Abbrechen</button><button class="button button-dark" type="submit">Ausgabe speichern</button></div>
+    </form>
+  </dialog>
+</body>
+</html>
