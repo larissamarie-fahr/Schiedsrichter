@@ -75,6 +75,40 @@ test('private app records games, preserves address history, and exports annual d
     assert.equal(gameResponse.status, 201, gameText);
     const game = JSON.parse(gameText);
     assert.equal(game.fee, 85);
+    assert.equal(game.mileage_rate, 0.38);
+
+    const consecutiveGameResponse = await request('/api/games', {
+      method: 'POST',
+      body: JSON.stringify({ game_date: '2026-02-14', game_time: '21:00', age_group: 'U17', system: '3-Mann', season: '2026/27', home_team: 'EHC Heim 2', away_team: 'EV Gast 2', stadium: 'Eiszentrum', stadium_address: 'Stadionweg 1, 80000 München', fee: '85', route_km: '68', route_mode: 'manual' }),
+    });
+    assert.equal(consecutiveGameResponse.status, 201);
+
+    const repeatedVenueGameResponse = await request('/api/games', {
+      method: 'POST',
+      body: JSON.stringify({ game_date: '2026-02-15', game_time: '18:30', age_group: 'U17', system: '3-Mann', season: '2026/27', home_team: 'EHC Heim 2', away_team: 'EV Gast 2', stadium: 'Eiszentrum', stadium_address: 'Stadionweg 1, 80000 München', fee: '85' }),
+    });
+    assert.equal(repeatedVenueGameResponse.status, 201);
+    assert.equal((await repeatedVenueGameResponse.json()).route_km, 68);
+
+    const savedVenueResponse = await request('/api/venues', {
+      method: 'POST',
+      body: JSON.stringify({ stadium: 'Speicherstadion', stadium_address: 'Speicherweg 1, 80000 München', route_km: '42.5' }),
+    });
+    assert.equal(savedVenueResponse.status, 200);
+    const savedVenueGameResponse = await request('/api/games', {
+      method: 'POST',
+      body: JSON.stringify({ game_date: '2026-02-13', game_time: '18:30', age_group: 'U17', system: '2-Mann', season: '2026/27', fee: '80', home_team: 'EV Speicher', away_team: 'EC Speicher', stadium: 'Speicherstadion', stadium_address: 'Speicherweg 1, 80000 München' }),
+    });
+    assert.equal(savedVenueGameResponse.status, 201);
+    assert.equal((await savedVenueGameResponse.json()).route_km, 42.5);
+
+    const historicalGameResponse = await request('/api/games', {
+      method: 'POST',
+      body: JSON.stringify({ game_date: '2025-11-20', game_time: '18:30', age_group: 'U17', system: '2-Mann', season: '2025/26', fee: '80', route_km: '10', route_mode: 'manual', home_team: 'EV Alt', away_team: 'EC Alt', stadium: 'Alte Halle', stadium_address: 'Altweg 1, 80000 München' }),
+    });
+    assert.equal(historicalGameResponse.status, 201);
+    const historicalGame = await historicalGameResponse.json();
+    assert.equal(historicalGame.mileage_rate, 0.3);
 
     const autoFeeResponse = await request('/api/games', {
       method: 'POST',
@@ -110,28 +144,51 @@ test('private app records games, preserves address history, and exports annual d
 
     const expenseResponse = await request('/api/expenses', {
       method: 'POST',
-      body: JSON.stringify({ expense_date: '2026-02-14', category: 'Parken', description: '=SUM(1,1)', amount: '4.5', attachment: { name: 'Beleg.pdf', type: 'application/pdf', data: Buffer.from('%PDF-1.4 test').toString('base64') } }),
+      body: JSON.stringify({ expense_date: '2026-02-14', category: 'Medizinischer und optischer Bedarf', vendor: 'Optik Beispiel', description: '=SUM(1,1)', note: 'Monatslinsen für die Saison', amount: '4.5', attachment: { name: 'Beleg.pdf', type: 'application/pdf', data: Buffer.from('%PDF-1.4 test').toString('base64') } }),
     });
     const expenseText = await expenseResponse.text();
     assert.equal(expenseResponse.status, 201, expenseText);
     const savedExpense = JSON.parse(expenseText);
+    assert.equal(savedExpense.vendor, 'Optik Beispiel');
+    assert.equal(savedExpense.note, 'Monatslinsen für die Saison');
     const attachmentResponse = await request(`/api/expenses/${savedExpense.id}/attachment`);
     assert.equal(attachmentResponse.status, 200);
     assert.match(await attachmentResponse.text(), /%PDF-1.4 test/);
+    const updatedExpenseResponse = await request(`/api/expenses/${savedExpense.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ expense_date: '2026-02-14', category: 'Medizinischer und optischer Bedarf', vendor: 'Optik Beispiel GmbH', description: '=SUM(1,1)', note: 'Monatslinsen und Pflegemittel', amount: '4.5' }),
+    });
+    assert.equal(updatedExpenseResponse.status, 200);
+    assert.equal((await updatedExpenseResponse.json()).note, 'Monatslinsen und Pflegemittel');
 
     const incomeCsv = await request('/api/export?year=2026&type=income');
     const incomeText = await incomeCsv.text();
+    assert.match(incomeText, /Einnahmenübersicht – 2026/);
+    assert.match(incomeCsv.headers.get('content-disposition'), /Einnahmen_Aufstellung_2026\.csv/);
     assert.match(incomeText, /EHC Heim/);
     assert.match(incomeText, /85,00/);
+    assert.match(incomeText, /"Summe";"";"";"";"";"98,17"/);
     const expensesCsv = await request('/api/export?year=2026&type=expenses');
     const expensesText = await expensesCsv.text();
-    assert.match(expensesText, /20,40/);
+    assert.match(expensesText, /Ausgabenübersicht – 2026/);
+    assert.match(expensesCsv.headers.get('content-disposition'), /Ausgaben_Aufstellung_2026\.csv/);
+    assert.match(expensesText, /Optik Beispiel GmbH/);
+    assert.match(expensesText, /Monatslinsen und Pflegemittel/);
     assert.match(expensesText, /'=SUM\(1,1\)/);
+    assert.equal(expensesText.match(/;"Fahrt";"Fahrtkosten"/g)?.length, 1, 'mileage costs should be aggregated into one annual row');
+    assert.match(expensesText, /"246,5 km x 0,38 €\/km";"";"93,67"/, 'annual row should describe the total kilometers multiplied by the per-kilometer rate');
+    assert.doesNotMatch(expensesText.split('\r\n')[0], /Kilometer/, 'the mileage column should be omitted');
+    assert.match(expensesText, /"Summe genau";"";"";"";"";"98,17"/);
+    assert.match(expensesText, /"Summe abgerundet auf volle Euro";"";"";"";"";"98,00"/);
+    const historicalExpensesCsv = await request('/api/export?year=2025&type=expenses');
+    const historicalExpensesText = await historicalExpensesCsv.text();
+    assert.match(historicalExpensesText, /"Summe genau";"";"";"";"";"3,80"/);
+    assert.match(historicalExpensesText, /"Summe abgerundet auf volle Euro";"";"";"";"";"3,00"/);
     const futureIncomeCsv = await request('/api/export?year=2027&type=income');
     assert.doesNotMatch(await futureIncomeCsv.text(), /EV Saison/);
     const futureExpensesCsv = await request('/api/export?year=2027&type=expenses');
     assert.doesNotMatch(await futureExpensesCsv.text(), /EV Saison/);
-    assert.equal((await request('/api/route', { method: 'POST', body: JSON.stringify({ from: 'a', to: 'b' }) })).status, 503);
+    assert.equal((await request('/api/route', { method: 'POST', body: JSON.stringify({ from: 'a', to: 'b' }) })).status, 404);
   } finally {
     child.kill('SIGTERM');
     await new Promise((resolve) => child.once('exit', resolve));

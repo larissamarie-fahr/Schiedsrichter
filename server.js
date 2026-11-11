@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, mkdirSync } from 'node:fs';
 import { unlink, writeFile } from 'node:fs/promises';
 import { dirname, extname, join, normalize } from 'node:path';
 import { homedir } from 'node:os';
@@ -12,13 +12,8 @@ const publicDir = join(root, 'public');
 const databasePath = process.env.DATABASE_PATH || join(homedir(), 'Library', 'Application Support', 'Schiedsrichter-App', 'referee.sqlite');
 const appDataDir = dirname(databasePath);
 const attachmentDir = join(appDataDir, 'attachments');
-const configPath = join(appDataDir, 'config.json');
 mkdirSync(dirname(databasePath), { recursive: true });
 mkdirSync(attachmentDir, { recursive: true });
-if (!existsSync(configPath)) writeFileSync(configPath, '{\n  "googleMapsApiKey": ""\n}\n', { mode: 0o600 });
-let localConfig = {};
-try { localConfig = JSON.parse(readFileSync(configPath, 'utf8')); } catch (error) { console.error(`Konfigurationsdatei konnte nicht gelesen werden: ${error.message}`); }
-const googleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY || localConfig.googleMapsApiKey || '';
 const db = new DatabaseSync(databasePath);
 db.exec(`
   PRAGMA foreign_keys = ON;
@@ -64,6 +59,15 @@ db.exec(`
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS venue_distances (
+    id INTEGER PRIMARY KEY,
+    home_address TEXT NOT NULL,
+    stadium TEXT NOT NULL,
+    stadium_address TEXT NOT NULL,
+    route_km REAL NOT NULL CHECK (route_km >= 0),
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS venue_distances_address_idx ON venue_distances (lower(trim(home_address)), lower(trim(stadium_address)));
   CREATE TABLE IF NOT EXISTS expenses (
     id INTEGER PRIMARY KEY,
     expense_date TEXT NOT NULL,
@@ -94,11 +98,15 @@ if (!gameColumns.includes('season')) {
     ELSE CAST(CAST(substr(game_date, 1, 4) AS INTEGER) - 1 AS TEXT) || '/' || substr(game_date, 3, 2)
   END`);
 }
+db.exec(`UPDATE games SET mileage_rate = CASE
+  WHEN CAST(substr(game_date, 1, 4) AS INTEGER) >= 2026 THEN 0.38
+  ELSE 0.30
+END`);
 
 const addressColumns = db.prepare('PRAGMA table_info(address_versions)').all().map((column) => column.name);
 if (!addressColumns.includes('effective_from')) db.exec("ALTER TABLE address_versions ADD COLUMN effective_from TEXT NOT NULL DEFAULT '0001-01-01'");
 const expenseColumns = db.prepare('PRAGMA table_info(expenses)').all().map((column) => column.name);
-for (const column of ['attachment_path', 'attachment_name', 'attachment_type']) {
+for (const column of ['attachment_path', 'attachment_name', 'attachment_type', 'vendor', 'note']) {
   if (!expenseColumns.includes(column)) db.exec(`ALTER TABLE expenses ADD COLUMN ${column} TEXT`);
 }
 
@@ -107,7 +115,7 @@ const initialRates = [
   ['U13', '', '2-Mann', '', '', 70],
   ['U15', '', '2-Mann', '', '', 80],
   ['U17', '', '2-Mann', '', '', 95],
-  ['U17 DEB', '', '2-Mann', '', '', 125],
+  ['DEB-U17', '', '2-Mann', '', '', 125],
   ['U20', 'LL', '2-Mann', '', '', 100],
   ['U20', 'BYL', '2-Mann', '', '', 100],
   ['U20', 'BYL', '3-Mann', 'Linienrichter', '', 100],
@@ -131,6 +139,16 @@ const initialRates = [
     ['BYL', '', '4-Mann', 'Hauptschiedsrichter', round, round === 'PlayOff/-Down' ? 250 : 220],
   ]),
 ];
+db.exec(`
+  INSERT OR IGNORE INTO salary_rates (season, age_group, league, system, role, round_stage, fee)
+  SELECT season, 'DEB-U17', league, system, role, round_stage, fee
+  FROM salary_rates
+  WHERE upper(trim(age_group)) IN ('U17 DEB', 'U17-DEB', 'U17–DEB', 'DEB–U17');
+  DELETE FROM salary_rates
+  WHERE upper(trim(age_group)) IN ('U17 DEB', 'U17-DEB', 'U17–DEB', 'DEB–U17');
+  UPDATE games SET age_group='DEB-U17'
+  WHERE upper(trim(age_group)) IN ('U17 DEB', 'U17-DEB', 'U17–DEB', 'DEB–U17');
+`);
 const seedRate = db.prepare('INSERT OR IGNORE INTO salary_rates (season, age_group, league, system, role, round_stage, fee) VALUES (?, ?, ?, ?, ?, ?, ?)');
 for (const [ageGroup, league, system, role, roundStage, fee] of initialRates) seedRate.run('2026/27', ageGroup, league, system, role, roundStage, fee);
 db.prepare("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('current_season', '2026/27')").run();
@@ -202,6 +220,25 @@ function currentAddress() {
   return db.prepare('SELECT * FROM address_versions ORDER BY effective_from DESC, id DESC LIMIT 1').get() || null;
 }
 
+function findVenueDistance(homeAddress, stadiumAddress) {
+  if (!homeAddress || !stadiumAddress) return null;
+  return db.prepare('SELECT * FROM venue_distances WHERE lower(trim(home_address))=lower(trim(?)) AND lower(trim(stadium_address))=lower(trim(?)) ORDER BY id DESC LIMIT 1').get(homeAddress, stadiumAddress) || null;
+}
+
+function findVenueDistanceByStadium(homeAddress, stadium) {
+  if (!homeAddress || !stadium) return null;
+  const normalize = (value) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('de-DE');
+  return db.prepare('SELECT * FROM venue_distances WHERE lower(trim(home_address))=lower(trim(?)) ORDER BY id DESC')
+    .all(homeAddress)
+    .find((venue) => normalize(venue.stadium) === normalize(stadium)) || null;
+}
+
+function saveVenueDistance(homeAddress, stadium, stadiumAddress, routeKm) {
+  if (!homeAddress || !stadiumAddress || routeKm === null || Number.isNaN(routeKm)) return;
+  db.prepare(`INSERT INTO venue_distances (home_address, stadium, stadium_address, route_km) VALUES (?, ?, ?, ?)
+    ON CONFLICT DO UPDATE SET stadium=excluded.stadium, route_km=excluded.route_km, updated_at=CURRENT_TIMESTAMP`).run(homeAddress.trim(), stadium.trim(), stadiumAddress.trim(), routeKm);
+}
+
 function findSalaryRate(game) {
   const rate = db.prepare(`SELECT fee FROM salary_rates WHERE season=? AND age_group=? AND league=? AND system=? AND role=? AND round_stage=?`).get(
     game.season,
@@ -218,19 +255,23 @@ function insertGame(game, id = null) {
   const address = addressForDate(game.game_date);
   const feeManual = manualFeeSelected(game);
   const fee = feeManual ? Number(game.fee) : findSalaryRate(game);
+  const savedDistance = numberOrNull(game.route_km) === null ? findVenueDistance(address?.address, game.stadium_address) : null;
+  const routeKm = savedDistance ? Number(savedDistance.route_km) : numberOrNull(game.route_km);
   const values = [
     game.game_date, game.game_time, game.age_group.trim(), game.system.trim(),
     game.home_team.trim(), game.away_team.trim(), game.stadium.trim(), game.stadium_address.trim(),
-    fee, numberOrNull(game.route_km), game.route_mode === 'google' ? 'google' : 'manual',
-    0.30, (game.league || '').trim(), (game.role || '').trim(), (game.round_stage || '').trim(), game.season || '2026/27', feeManual ? 1 : 0, address?.id ?? null,
+    fee, routeKm, 'manual',
+    mileageRateForDate(game.game_date), (game.league || '').trim(), (game.role || '').trim(), (game.round_stage || '').trim(), game.season || '2026/27', feeManual ? 1 : 0, address?.id ?? null,
   ];
   if (id) {
     const existing = db.prepare('SELECT address_version_id FROM games WHERE id=?').get(id);
     values[17] = existing?.address_version_id ?? null;
     db.prepare(`UPDATE games SET game_date=?, game_time=?, age_group=?, system=?, home_team=?, away_team=?, stadium=?, stadium_address=?, fee=?, route_km=?, route_mode=?, mileage_rate=?, league=?, role=?, round_stage=?, season=?, fee_manual=?, address_version_id=? WHERE id=?`).run(...values, id);
+    saveVenueDistance(address?.address, game.stadium, game.stadium_address, routeKm);
     return db.prepare('SELECT * FROM games WHERE id=?').get(id);
   }
   const result = db.prepare(`INSERT INTO games (game_date, game_time, age_group, system, home_team, away_team, stadium, stadium_address, fee, route_km, route_mode, mileage_rate, league, role, round_stage, season, fee_manual, address_version_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(...values);
+  saveVenueDistance(address?.address, game.stadium, game.stadium_address, routeKm);
   return db.prepare('SELECT * FROM games WHERE id=?').get(result.lastInsertRowid);
 }
 
@@ -257,9 +298,11 @@ function csvResponse(response, filename, rows) {
 function runImportParser() {
   const assignments = join(root, 'Spiele', 'Eishockey Management by BEV.xlsx');
   const salaries = join(root, 'Spiele', 'Gehalt Schiedsrichter.xlsx');
-  if (!existsSync(assignments) || !existsSync(salaries)) throw new Error('Excel-Dateien fehlen im Ordner Spiele.');
+  if (!existsSync(assignments)) throw new Error('Die Einteilungsdatei „Eishockey Management by BEV.xlsx“ fehlt im Ordner Spiele.');
   return new Promise((resolve, reject) => {
-    const child = spawn(process.env.PYTHON || 'python3', [join(root, 'import_xlsx.py'), assignments, salaries]);
+    const args = [join(root, 'import_xlsx.py'), assignments];
+    if (existsSync(salaries)) args.push(salaries);
+    const child = spawn(process.env.PYTHON || 'python3', args);
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8');
@@ -284,11 +327,29 @@ function seasonForDate(date) {
   return `${start}/${String((start + 1) % 100).padStart(2, '0')}`;
 }
 
+function mileageRateForDate(date) {
+  return Number(date.slice(0, 4)) >= 2026 ? 0.38 : 0.30;
+}
+
+function billableRouteKilometers(games) {
+  const distances = new Map(games.map((game) => [game.id, game.route_km === null ? null : Number(game.route_km)]));
+  for (let index = 1; index < games.length; index += 1) {
+    const previous = games[index - 1];
+    const current = games[index];
+    const previousVenue = (previous.stadium_address || previous.stadium).trim().toLocaleLowerCase('de-DE').replace(/\s+/g, ' ');
+    const currentVenue = (current.stadium_address || current.stadium).trim().toLocaleLowerCase('de-DE').replace(/\s+/g, ' ');
+    if (previous.game_date !== current.game_date || previousVenue !== currentVenue || previous.route_km === null || current.route_km === null) continue;
+    distances.set(previous.id, Number(previous.route_km) / 2);
+    distances.set(current.id, Number(current.route_km) / 2);
+  }
+  return distances;
+}
+
 function applyImport(imported) {
   const counts = { addedGames: 0, updatedGames: 0, addedExpenses: 0 };
   const gameByKey = new Map(db.prepare('SELECT * FROM games').all().map((game) => [importKey(game), game]));
-  const insert = db.prepare(`INSERT INTO games (game_date, game_time, age_group, system, home_team, away_team, stadium, stadium_address, fee, route_km, route_mode, mileage_rate, league, role, round_stage, season, fee_manual, address_version_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', 0.30, ?, ?, ?, ?, ?, ?)`);
-  const update = db.prepare(`UPDATE games SET game_time=?, age_group=?, system=?, league=?, role=?, round_stage=?, season=?, stadium=?, stadium_address=?, fee=?, route_km=?, fee_manual=?, address_version_id=? WHERE id=?`);
+  const insert = db.prepare(`INSERT INTO games (game_date, game_time, age_group, system, home_team, away_team, stadium, stadium_address, fee, route_km, route_mode, mileage_rate, league, role, round_stage, season, fee_manual, address_version_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?, ?, ?, ?, ?)`);
+  const update = db.prepare(`UPDATE games SET game_time=?, age_group=?, system=?, league=?, role=?, round_stage=?, season=?, stadium=?, stadium_address=?, fee=?, route_km=?, mileage_rate=?, fee_manual=?, address_version_id=? WHERE id=?`);
   const addExpense = db.prepare('INSERT INTO expenses (expense_date, category, description, amount) VALUES (?, ?, ?, ?)');
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -300,6 +361,11 @@ function applyImport(imported) {
       const rateFee = fromSalary ? null : findSalaryRate({ ...game, season });
       const importedFee = fromSalary ? Number(game.fee) : rateFee ?? 0;
       const address = addressForDate(game.game_date);
+      const savedDistance = findVenueDistance(address?.address, game.stadium_address || existing?.stadium_address)
+        || findVenueDistanceByStadium(address?.address, game.stadium);
+      const stadiumAddress = savedDistance && game.stadium_address.trim().toLocaleLowerCase('de-DE') === game.stadium.trim().toLocaleLowerCase('de-DE')
+        ? savedDistance.stadium_address
+        : game.stadium_address || existing?.stadium_address || '';
       if (existing) {
         const updatedGame = {
           ...existing,
@@ -311,9 +377,9 @@ function applyImport(imported) {
           round_stage: game.round_stage || existing.round_stage,
           season,
           stadium: game.stadium || existing.stadium,
-          stadium_address: game.stadium_address || existing.stadium_address,
+          stadium_address: stadiumAddress || existing.stadium_address,
           fee: fromSalary ? importedFee : Number(existing.fee) || importedFee,
-          route_km: fromSalary && game.route_km !== null ? game.route_km : existing.route_km,
+          route_km: fromSalary && game.route_km !== null ? game.route_km : existing.route_km ?? savedDistance?.route_km ?? null,
           fee_manual: fromSalary ? 1 : Number(existing.fee) > 0 ? existing.fee_manual : rateFee === null ? existing.fee_manual : 0,
           address_version_id: existing.address_version_id ?? address?.id ?? null,
         };
@@ -329,16 +395,20 @@ function applyImport(imported) {
           updatedGame.stadium_address,
           updatedGame.fee,
           updatedGame.route_km,
+          updatedGame.mileage_rate,
           updatedGame.fee_manual,
           updatedGame.address_version_id,
           existing.id,
         );
+        saveVenueDistance(address?.address, updatedGame.stadium, updatedGame.stadium_address, updatedGame.route_km);
         gameByKey.set(key, updatedGame);
         counts.updatedGames += 1;
       } else {
         const feeManual = fromSalary || rateFee === null;
-        const result = insert.run(game.game_date, game.game_time, game.age_group, game.system, game.home_team, game.away_team, game.stadium, game.stadium_address, importedFee, game.route_km, game.league || '', game.role || '', game.round_stage || '', season, feeManual ? 1 : 0, address?.id ?? null);
+        const routeKm = game.route_km ?? savedDistance?.route_km ?? null;
+        const result = insert.run(game.game_date, game.game_time, game.age_group, game.system, game.home_team, game.away_team, game.stadium, stadiumAddress, importedFee, routeKm, mileageRateForDate(game.game_date), game.league || '', game.role || '', game.round_stage || '', season, feeManual ? 1 : 0, address?.id ?? null);
         const saved = db.prepare('SELECT * FROM games WHERE id=?').get(result.lastInsertRowid);
+        saveVenueDistance(address?.address, saved.stadium, saved.stadium_address, saved.route_km);
         gameByKey.set(key, saved);
         counts.addedGames += 1;
       }
@@ -403,9 +473,9 @@ async function serve(request, response) {
         expenses: db.prepare('SELECT * FROM expenses ORDER BY expense_date DESC, id DESC').all(),
         address: currentAddress(),
         addressHistory: db.prepare('SELECT * FROM address_versions ORDER BY effective_from DESC, id DESC').all(),
+        venueDistances: db.prepare('SELECT * FROM venue_distances ORDER BY stadium COLLATE NOCASE').all(),
         salaryRates: db.prepare('SELECT * FROM salary_rates ORDER BY season DESC, age_group, league, system, role, round_stage').all(),
         currentSeason: db.prepare("SELECT value FROM app_settings WHERE key='current_season'").get()?.value || '2026/27',
-        googleMapsEnabled: Boolean(googleMapsApiKey),
       });
     }
 
@@ -454,31 +524,31 @@ async function serve(request, response) {
       return sendJson(response, 201, db.prepare('SELECT * FROM address_versions WHERE id=?').get(result.lastInsertRowid));
     }
 
+    const venueMatch = path.match(/^\/api\/venues(?:\/(\d+))?$/);
+    if (venueMatch && request.method === 'POST') {
+      const venue = await readJson(request);
+      const routeKm = numberOrNull(venue.route_km);
+      if (typeof venue.stadium !== 'string' || !venue.stadium.trim() || venue.stadium.length > 250 || typeof venue.stadium_address !== 'string' || !venue.stadium_address.trim() || venue.stadium_address.length > 250 || routeKm === null || Number.isNaN(routeKm)) return sendJson(response, 400, { error: 'Spielort, Stadionadresse und eine gültige Kilometerzahl sind erforderlich.' });
+      const address = currentAddress();
+      if (!address) return sendJson(response, 400, { error: 'Bitte zuerst die Heimatadresse hinterlegen.' });
+      saveVenueDistance(address.address, venue.stadium, venue.stadium_address, routeKm);
+      return sendJson(response, 200, findVenueDistance(address.address, venue.stadium_address));
+    }
+    if (venueMatch && request.method === 'DELETE' && venueMatch[1]) {
+      db.prepare('DELETE FROM venue_distances WHERE id=?').run(Number(venueMatch[1]));
+      return sendJson(response, 200, { ok: true });
+    }
+
     if (path === '/api/import' && request.method === 'POST') {
       try {
         const imported = await runImportParser();
-        return sendJson(response, 200, { counts: applyImport(imported), parsed: imported.counts });
+        const warnings = existsSync(join(root, 'Spiele', 'Gehalt Schiedsrichter.xlsx'))
+          ? []
+          : ['Gehalts- und Ausgabendatei fehlt; diese Daten wurden nicht importiert.'];
+        return sendJson(response, 200, { counts: applyImport(imported), parsed: imported.counts, warnings });
       } catch (error) {
         return sendJson(response, 400, { error: error.message || 'Excel-Import ist fehlgeschlagen.' });
       }
-    }
-
-    if (path === '/api/route' && request.method === 'POST') {
-      if (!googleMapsApiKey) return sendJson(response, 503, { error: 'Google Maps ist noch nicht eingerichtet. Kilometer bitte manuell eintragen.' });
-      const { from, to } = await readJson(request);
-      if (!from || !to) return sendJson(response, 400, { error: 'Heimat- und Stadionadresse werden benötigt.' });
-      const result = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Goog-Api-Key': googleMapsApiKey,
-          'X-Goog-FieldMask': 'routes.distanceMeters',
-        },
-        body: JSON.stringify({ origin: { address: from }, destination: { address: to }, travelMode: 'DRIVE', routingPreference: 'TRAFFIC_UNAWARE' }),
-      });
-      const payload = await result.json();
-      if (!result.ok || !payload.routes?.[0]?.distanceMeters) return sendJson(response, 502, { error: payload.error?.message || 'Google Maps konnte die Route nicht berechnen.' });
-      return sendJson(response, 200, { roundTripKm: Math.round(payload.routes[0].distanceMeters * 2 / 10) / 100 });
     }
 
     const gameMatch = path.match(/^\/api\/games(?:\/(\d+))?$/);
@@ -503,15 +573,17 @@ async function serve(request, response) {
       if (request.method === 'POST' || request.method === 'PUT') {
         const expense = await readJson(request, 36 * 1024 * 1024);
         const amount = numberOrNull(expense.amount);
-        if (!validDate(expense.expense_date) || !expense.category?.trim() || !expense.description?.trim() || amount === null || Number.isNaN(amount)) return sendJson(response, 400, { error: 'Bitte Datum, Kategorie, Beschreibung und einen gültigen Betrag angeben.' });
+        if (!validDate(expense.expense_date) || !expense.category?.trim() || typeof expense.vendor !== 'string' || !expense.vendor.trim() || expense.vendor.length > 250 || !expense.description?.trim() || expense.description.length > 1000 || (expense.note !== undefined && typeof expense.note !== 'string') || (typeof expense.note === 'string' && expense.note.length > 2000) || amount === null || Number.isNaN(amount)) return sendJson(response, 400, { error: 'Bitte Datum, Kategorie, Rechnungssteller, Beschreibung und einen gültigen Betrag angeben. Rechnungssteller dürfen höchstens 250, Beschreibung 1.000 und Bemerkung 2.000 Zeichen lang sein.' });
+        const vendor = expense.vendor.trim();
+        const note = (expense.note || '').trim();
         let attachment;
         try { attachment = await saveAttachment(expense.attachment); } catch (error) { return sendJson(response, 400, { error: error.message }); }
         if (request.method === 'PUT') {
-          if (attachment) db.prepare('UPDATE expenses SET expense_date=?, category=?, description=?, amount=?, attachment_path=?, attachment_name=?, attachment_type=? WHERE id=?').run(expense.expense_date, expense.category.trim(), expense.description.trim(), amount, attachment.path, attachment.name, attachment.type, id);
-          else db.prepare('UPDATE expenses SET expense_date=?, category=?, description=?, amount=? WHERE id=?').run(expense.expense_date, expense.category.trim(), expense.description.trim(), amount, id);
+          if (attachment) db.prepare('UPDATE expenses SET expense_date=?, category=?, vendor=?, description=?, note=?, amount=?, attachment_path=?, attachment_name=?, attachment_type=? WHERE id=?').run(expense.expense_date, expense.category.trim(), vendor, expense.description.trim(), note, amount, attachment.path, attachment.name, attachment.type, id);
+          else db.prepare('UPDATE expenses SET expense_date=?, category=?, vendor=?, description=?, note=?, amount=? WHERE id=?').run(expense.expense_date, expense.category.trim(), vendor, expense.description.trim(), note, amount, id);
           return sendJson(response, 200, db.prepare('SELECT * FROM expenses WHERE id=?').get(id));
         }
-        const result = db.prepare('INSERT INTO expenses (expense_date, category, description, amount, attachment_path, attachment_name, attachment_type) VALUES (?, ?, ?, ?, ?, ?, ?)').run(expense.expense_date, expense.category.trim(), expense.description.trim(), amount, attachment?.path ?? null, attachment?.name ?? null, attachment?.type ?? null);
+        const result = db.prepare('INSERT INTO expenses (expense_date, category, vendor, description, note, amount, attachment_path, attachment_name, attachment_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(expense.expense_date, expense.category.trim(), vendor, expense.description.trim(), note, amount, attachment?.path ?? null, attachment?.name ?? null, attachment?.type ?? null);
         return sendJson(response, 201, db.prepare('SELECT * FROM expenses WHERE id=?').get(result.lastInsertRowid));
       }
       if (request.method === 'DELETE' && id) {
@@ -541,17 +613,35 @@ async function serve(request, response) {
       if (!/^\d{4}$/.test(year || '') || !['income', 'expenses'].includes(type)) return sendJson(response, 400, { error: 'Ungültiges Exportjahr oder Exportformat.' });
       if (type === 'income') {
         const games = db.prepare("SELECT * FROM games WHERE substr(game_date,1,4)=? AND (game_date || ' ' || game_time || ':00') <= datetime('now','localtime') ORDER BY game_date, game_time").all(year);
-        const rows = [['Datum', 'Uhrzeit', 'Altersklasse', 'System', 'Heim', 'Gast', 'Eisstadion', 'Gehalt EUR']];
+        const rows = [[`Einnahmenübersicht zur Vorlage beim Finanzamt – ${year}`], ['Datum', 'Uhrzeit', 'Altersklasse', 'System', 'Heim', 'Gast', 'Eisstadion', 'Gehalt EUR']];
         for (const game of games) rows.push([game.game_date, game.game_time, game.age_group, game.system, game.home_team, game.away_team, game.stadium, euro(game.fee)]);
-        return csvResponse(response, `einnahmen-${year}.csv`, rows);
+        return csvResponse(response, `Einnahmen_Finanzamt_${year}.csv`, rows);
       }
-      const games = db.prepare("SELECT * FROM games WHERE substr(game_date,1,4)=? AND route_km IS NOT NULL AND (game_date || ' ' || game_time || ':00') <= datetime('now','localtime') ORDER BY game_date").all(year);
+      const games = db.prepare('SELECT * FROM games WHERE substr(game_date,1,4)=? ORDER BY game_date, game_time, id').all(year);
+      const routeKmById = billableRouteKilometers(games);
+      const now = new Date();
       const expenses = db.prepare('SELECT * FROM expenses WHERE substr(expense_date,1,4)=? ORDER BY expense_date').all(year);
-      const rows = [['Datum', 'Art', 'Kategorie', 'Beschreibung', 'Kilometer', 'Betrag EUR']];
-      for (const game of games) rows.push([game.game_date, 'Fahrt', 'Fahrtkosten', `${game.home_team} - ${game.away_team} (${game.stadium})`, String(game.route_km).replace('.', ','), euro(game.route_km * game.mileage_rate)]);
-      for (const expense of expenses) rows.push([expense.expense_date, 'Ausgabe', expense.category, expense.description, '', euro(expense.amount)]);
-      rows.splice(1, rows.length - 1, ...rows.slice(1).sort((a, b) => a[0].localeCompare(b[0])));
-      return csvResponse(response, `ausgaben-${year}.csv`, rows);
+      const rows = [[`Ausgabenübersicht zur Vorlage beim Finanzamt – ${year}`], ['Datum', 'Art', 'Kategorie', 'Rechnungssteller / bezahlt bei', 'Beschreibung', 'Bemerkung', 'Betrag EUR']];
+      let totalRouteKm = 0;
+      let hasMileage = false;
+      for (const game of games) {
+        const routeKm = routeKmById.get(game.id);
+        if (routeKm === null || new Date(`${game.game_date}T${game.game_time || '00:00'}:00`) > now) continue;
+        hasMileage = true;
+        totalRouteKm += routeKm;
+      }
+      let totalExpensesCents = expenses.reduce((sum, expense) => sum + Math.round(Number(expense.amount) * 100), 0);
+      if (hasMileage) {
+        const totalMileageCents = Math.round(totalRouteKm * 38);
+        const formattedRouteKm = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 }).format(totalRouteKm);
+        totalExpensesCents += totalMileageCents;
+        rows.push([`${year}-12-31`, 'Fahrt', 'Fahrtkosten', '', `${formattedRouteKm} km x 0,38 €/km`, '', euro(totalMileageCents / 100)]);
+      }
+      for (const expense of expenses) rows.push([expense.expense_date, 'Ausgabe', expense.category, expense.vendor || '', expense.description, expense.note || '', euro(expense.amount)]);
+      rows.splice(2, rows.length - 2, ...rows.slice(2).sort((a, b) => a[0].localeCompare(b[0])));
+      rows.push(['', 'Summe genau', '', '', '', '', euro(totalExpensesCents / 100)]);
+      rows.push(['', 'Summe abgerundet auf volle Euro', '', '', '', '', euro(Math.floor(totalExpensesCents / 100))]);
+      return csvResponse(response, `Ausgaben_Finanzamt_${year}.csv`, rows);
     }
 
     return sendJson(response, 404, { error: 'API-Endpunkt nicht gefunden.' });

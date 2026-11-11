@@ -84,6 +84,9 @@ input:focus, select:focus { border-color: var(--green); box-shadow: 0 0 0 2px rg
 .summary-total strong { font: 700 25px var(--display); color: #fff; }
 .export-actions { display: flex; gap: 14px; margin-top: 23px; flex-wrap: wrap; }
 .export-link { color: #f5f5ec; font-size: 11px; text-decoration-color: #9cbaaa; text-underline-offset: 4px; }
+.monthly-income { margin-top: 48px; padding-top: 30px; border-top: 1px solid #bec9bf; }
+.monthly-income table { max-width: 760px; }
+.monthly-income tfoot th { padding-top: 13px; border-top: 1px solid #bac7bd; color: var(--ink); font-weight: 700; }
 .table-wrap { width: 100%; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; text-align: left; }
 th { padding: 10px 12px 10px 0; border-bottom: 1px solid #bac7bd; color: var(--muted); font: 500 10px var(--mono); text-transform: uppercase; white-space: nowrap; }
@@ -98,10 +101,10 @@ td .subtext { display: block; margin-top: 3px; color: var(--muted); font-size: 1
 .settings-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; max-width: 970px; }
 .settings-section { padding-top: 5px; }
 .settings-section h2 { margin-bottom: 12px; }
-.settings-copy, .privacy-footnote { max-width: 480px; color: var(--muted); font-size: 13px; line-height: 1.65; }
-.rate-manager { margin-top: 48px; padding-top: 30px; border-top: 1px solid var(--line); }
-.rate-manager > .section-heading, .rate-table { max-width: 1050px; }
-.rate-manager > .settings-copy { max-width: 720px; margin-bottom: 20px; }
+.settings-copy { max-width: 480px; color: var(--muted); font-size: 13px; line-height: 1.65; }
+.rate-manager { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--line); }
+.rate-table { max-width: 1050px; }
+.rate-manager .settings-copy { max-width: 720px; margin-bottom: 20px; }
 .season-form { display: flex; align-items: end; gap: 10px; margin: 20px 0 25px; }
 .season-form label, .rate-form label, .rate-season-filter { display: grid; gap: 6px; color: #46534d; font-size: 11px; font-weight: 600; }
 .season-form input { width: 130px; }
@@ -123,7 +126,20 @@ td .subtext { display: block; margin-top: 3px; color: var(--muted); font-size: 1
 .history-list { border-top: 1px solid var(--line); }
 .history-entry { display: flex; flex-direction: column; gap: 4px; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
 .history-entry time { color: var(--muted); font: 10px var(--mono); }
-.privacy-footnote { margin-top: 55px; border-top: 1px solid var(--line); padding-top: 18px; }
+.venue-manager { max-width: 1050px; margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--line); }
+.venue-manager .settings-copy { max-width: 720px; }
+.collapsible-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; cursor: pointer; list-style: none; }
+.collapsible-heading::-webkit-details-marker { display: none; }
+.collapsible-heading > span { display: grid; gap: 4px; }
+.collapsible-heading .eyebrow { margin: 0; }
+.collapsible-heading strong { font: 700 22px var(--display); }
+.collapsible-heading::after { width: 9px; height: 9px; flex: 0 0 9px; border-right: 1.5px solid var(--green); border-bottom: 1.5px solid var(--green); content: ''; transform: rotate(45deg) translateY(-2px); transition: transform .16s ease; }
+.collapsible-section[open] > .collapsible-heading::after { transform: rotate(225deg) translate(-2px, -1px); }
+.collapsible-content { padding-top: 18px; }
+.venue-form { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(220px, 1.5fr) minmax(145px, .7fr) auto; gap: 10px; align-items: end; margin: 20px 0 25px; }
+.venue-form label { display: grid; gap: 6px; color: #46534d; font-size: 11px; font-weight: 600; }
+.venue-form input { width: 100%; min-width: 0; min-height: 38px; padding: 7px 8px; font-size: 12px; }
+.venue-form .button { min-height: 38px; }
 
 .form-dialog { width: min(680px, calc(100vw - 28px)); max-height: min(90vh, 840px); overflow-y: auto; border: 1px solid var(--line); border-radius: 3px; padding: 28px; color: var(--ink); background: var(--surface); box-shadow: 0 24px 80px rgba(18,39,33,.2); }
 .form-dialog::backdrop { background: rgba(15,35,30,.48); backdrop-filter: blur(2px); }
@@ -137,8 +153,6 @@ td .subtext { display: block; margin-top: 3px; color: var(--muted); font-size: 1
 .form-grid input[type="file"] { min-height: 44px; padding: 8px; font-size: 11px; }
 .span-two { grid-column: span 2; }
 .distance-field > label { display: block; margin-bottom: 7px; color: #46534d; font-size: 11px; font-weight: 600; }
-.distance-control { display: flex; gap: 8px; }
-.distance-control input { flex: 1; min-width: 90px; }
 .field-hint { display: block; margin-top: 7px; color: var(--muted); font-size: 10px; }
 .form-error { min-height: 17px; color: #a63e2a; font-size: 12px; }
 .dialog-actions { display: flex; justify-content: end; gap: 9px; margin-top: 18px; }
@@ -171,7 +185,7 @@ td .subtext { display: block; margin-top: 3px; color: var(--muted); font-size: 1
   .stat-label { font-size: 11px; }
   .stat-detail { font-size: 10px; }
   .overview-columns, .settings-layout { grid-template-columns: 1fr; gap: 31px; }
-  .career-stats { margin-top: 34px; padding-top: 23px; }
+  .career-stats, .monthly-income { margin-top: 34px; padding-top: 23px; }
   .career-total { gap: 7px 10px; }
   .career-total strong { font-size: 21px; }
   .career-total span { margin-right: 8px; }
@@ -183,14 +197,14 @@ td .subtext { display: block; margin-top: 3px; color: var(--muted); font-size: 1
   .heading-actions .button { width: 100%; }
   td { padding-right: 10px; }
   .settings-layout { gap: 35px; }
-  .rate-manager { margin-top: 36px; padding-top: 24px; }
+  .rate-manager { margin-top: 36px; padding-top: 20px; }
+  .collapsible-heading strong { font-size: 19px; }
+  .venue-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .venue-form .button { width: 100%; }
   .rate-form { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 13px; }
   .rate-form .button { grid-column: span 2; }
   .season-form { flex-wrap: wrap; }
   .rate-table table { min-width: 710px; }
-  .privacy-footnote { margin-top: 36px; }
   .form-dialog { padding: 21px 17px; }
   .form-grid { gap: 12px; }
-  .distance-control { flex-wrap: wrap; }
-  .distance-control .button { width: 100%; }
 }

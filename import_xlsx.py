@@ -109,7 +109,7 @@ def classify_salary_game(value, fee):
                 break
 
     normalized = re.sub(r"\s+", " ", age).strip()
-    normalized = re.sub(r"^U17\s*[-–]\s*DEB$", "U17 DEB", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"^(?:U17(?:\s*[-–]\s*|\s+)DEB|DEB(?:\s*[-–]\s*|\s+)U17)$", "DEB-U17", normalized, flags=re.IGNORECASE)
     normalized = re.sub(r"^DEB\s*[-–]\s*U15$", "U15 DEB", normalized, flags=re.IGNORECASE)
     normalized = re.sub(r"^DEB\s*[-–]\s*U16$", "U16 DEB", normalized, flags=re.IGNORECASE)
 
@@ -144,8 +144,8 @@ def classify_salary_game(value, fee):
         system = "2-Mann"
     elif normalized.upper() == "U17" and fee == 95:
         system = "2-Mann"
-    elif normalized.upper() in ("U17 DEB", "U15 DEB"):
-        normalized = "U17 DEB" if normalized.upper() == "U17 DEB" else "U15 DEB"
+    elif normalized.upper() in ("DEB-U17", "U15 DEB"):
+        normalized = "DEB-U17" if normalized.upper() == "DEB-U17" else "U15 DEB"
         system = "2-Mann"
     elif normalized.upper() == "FRAUEN" and fee == 100:
         system = "2-Mann"
@@ -180,8 +180,8 @@ def classify_assignment(value, slot_count, self_slot):
         age_group = "BZL"
     elif upper.startswith("LL"):
         age_group = "LL"
-    elif upper.startswith("U17") and "DEB" in upper:
-        age_group = "U17 DEB"
+    elif re.match(r"^(?:DEB(?:\s*[-–]\s*|\s+)U17|U17(?:\s*[-–]\s*|\s+)DEB)\b", upper):
+        age_group = "DEB-U17"
     else:
         match = re.match(r"^(U11|U13|U15|U17|U20|FRAUEN)\b", upper)
         if match:
@@ -274,10 +274,10 @@ def read_assignments(path):
 
 
 def main():
-    if len(sys.argv) != 3:
-        raise SystemExit("Nutzung: import_xlsx.py EINTEILUNGEN.xlsx GEHALT.xlsx")
+    if len(sys.argv) not in (2, 3):
+        raise SystemExit("Nutzung: import_xlsx.py EINTEILUNGEN.xlsx [GEHALT.xlsx]")
     assignment_games = read_assignments(sys.argv[1])
-    salary_games, expenses = read_salary_workbook(sys.argv[2])
+    salary_games, expenses = read_salary_workbook(sys.argv[2]) if len(sys.argv) == 3 else ([], [])
     print(json.dumps({
         "games": salary_games + assignment_games,
         "expenses": expenses,

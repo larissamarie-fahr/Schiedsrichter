@@ -21,40 +21,20 @@ Standardmäßig speichert die App ihre Daten hier:
 
 - Datenbank: `~/Library/Application Support/Schiedsrichter-App/referee.sqlite`
 - Belege: `~/Library/Application Support/Schiedsrichter-App/attachments/`
-- Lokale Konfiguration, einschließlich Google-Maps-Schlüssel: `~/Library/Application Support/Schiedsrichter-App/config.json`
 
 Diese Dateien liegen außerhalb des Projektordners. Das Projekt kann daher geteilt oder aktualisiert werden, ohne automatisch deine Datenbank und Rechnungen mitzuschicken. Für ein Backup den Server beenden und den gesamten Ordner `~/Library/Application Support/Schiedsrichter-App` sichern.
 
-## Google Maps aktivieren
-
-Die App verwendet Googles **Routes API**. Ohne Schlüssel ist die Funktion aus; du kannst Fahrtkilometer weiterhin manuell eintragen.
-
-1. Bei [Google Cloud Console](https://console.cloud.google.com/) mit deinem Google-Konto anmelden und ein Projekt auswählen oder neu erstellen.
-2. Für das Projekt ein Abrechnungskonto verknüpfen. Google kann für API-Aufrufe Gebühren berechnen; prüfe dort die aktuellen Preise und Nutzungsbedingungen.
-3. Unter **APIs & Dienste → Bibliothek** nach **Routes API** suchen und sie für das Projekt aktivieren.
-4. Unter **APIs & Dienste → Anmeldedaten → Anmeldedaten erstellen → API-Schlüssel** einen Schlüssel erstellen.
-5. Den Schlüssel in den Schlüsseleinstellungen auf die **Routes API** beschränken. Es ist ein serverseitiger Schlüssel: keine Website- oder HTTP-Referrer-Beschränkung einrichten. Den Schlüssel nicht teilen oder in Git einchecken.
-6. Auf dem Mac im Terminal `open -e "$HOME/Library/Application Support/Schiedsrichter-App/config.json"` ausführen. In der Datei den Wert von `googleMapsApiKey` eintragen, zum Beispiel:
-
-   ```json
-   {
-     "googleMapsApiKey": "HIER_DEN_EIGENEN_SCHLUESSEL_EINTRAGEN"
-   }
-   ```
-
-   Die Datei speichern. Sie gehört nur auf den Mac, auf dem die App läuft.
-7. Den Server mit `Ctrl+C` beenden und mit `npm start` neu starten. Unter **Einstellungen → Heimatadresse** zeigt die App danach an, dass Google Maps eingerichtet ist.
-
-Bei einer Berechnung erhält Google die Heimat- und Stadionadresse. Der Schlüssel bleibt serverseitig und wird nicht an den Browser ausgegeben. Ohne Schlüssel oder bei einem Google-Fehler kann die Strecke im Spielformular weiterhin manuell eingetragen werden.
-
 ## Excel-Import
 
-Für den Import müssen diese beiden Dateien im Ordner `Spiele` liegen:
+Die Einteilungsdatei muss im Ordner `Spiele` liegen:
 
 - `Eishockey Management by BEV.xlsx`
+
+Optional kann zusätzlich diese Datei dort liegen:
+
 - `Gehalt Schiedsrichter.xlsx`
 
-Unter **Spiele → Excel übernehmen** werden die Dateien lokal auf dem Mac gelesen. Gehälter aus dem Gehaltsblatt werden direkt übernommen. Systeme und Funktionen werden aus den Angaben des Gehaltsblatts beziehungsweise den belegten Schiedsrichterplätzen im Einteilungsblatt abgeleitet. Ist eine historische Angabe nicht eindeutig, bleibt das System als **Nicht angegeben** markiert, statt einen Wert zu erfinden. Neue Einteilungen bekommen ihr Gehalt automatisch, wenn Altersklasse, Liga, System, Funktion, Runde und Saison zu einem konfigurierten Tarif passen.
+Unter **Spiele → Excel übernehmen** werden die Dateien lokal auf dem Mac gelesen. Ohne Gehaltsdatei werden Einteilungen importiert; Gehälter und Ausgaben aus dieser Datei werden dann ausgelassen und die App weist darauf hin. Ist die Gehaltsdatei vorhanden, werden Gehälter daraus direkt übernommen. Systeme und Funktionen werden aus den Angaben des Gehaltsblatts beziehungsweise den belegten Schiedsrichterplätzen im Einteilungsblatt abgeleitet. Ist eine historische Angabe nicht eindeutig, bleibt das System als **Nicht angegeben** markiert, statt einen Wert zu erfinden. Neue Einteilungen bekommen ihr Gehalt automatisch, wenn Altersklasse, Liga, System, Funktion, Runde und Saison zu einem konfigurierten Tarif passen.
 
 Der Import gleicht Spiele anhand von Datum und Mannschaften ab, sodass ein erneuter Import keine Kopien erzeugt. Excel-Dateien werden nicht in die Datenbank importiert und sind in Git ignoriert.
 
@@ -66,7 +46,7 @@ Unter **Einstellungen → Saisonvergütung** sind die Tarife für 2026/27 konfig
 
 ## Export und Belege
 
-Die Jahresauswahl filtert die Einnahmen- und Ausgabenlisten. Beide lassen sich als CSV exportieren. Fahrtkosten werden mit der gespeicherten Hin- und Rückfahrtstrecke und dem Kilometersatz berechnet. An sonstige Ausgaben können PDF-, JPG-, PNG- und WebP-Belege bis 25 MB angehängt werden; sie bleiben lokal im App-Support-Ordner.
+Die Jahresauswahl filtert die Einnahmen- und Ausgabenlisten. Beide lassen sich als jahresbezogene CSV zur Vorlage beim Finanzamt exportieren. Die Ausgaben-CSV enthält die exakte Jahressumme und zusätzlich die auf volle Euro abgerundete Summe. Fahrtkosten werden gesammelt mit 0,38 €/km ausgewiesen. Bei sonstigen Ausgaben werden Rechnungssteller beziehungsweise Zahlungsstelle und Beschreibung erfasst; Bemerkungen und PDF-, JPG-, PNG- oder WebP-Belege bis 25 MB sind optional und bleiben lokal im App-Support-Ordner.
 
 ## Eine getrennte Kopie für ein anderes MacBook erstellen
 
